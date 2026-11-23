@@ -1,0 +1,8 @@
++dvt_init+xcelium.xrun -top hsf3_fpfma_pipe
+proj/pkg/*.sv
+proj/rtl/**/*.sv
+fusesoc_libraries/hasunosora-hdl-infra.git/proj/pkg/**/*.sv
+fusesoc_libraries/hasunosora-hdl-infra.git/proj/if/**/*.sv
+fusesoc_libraries/hasunosora-hdl-infra.git/proj/rtl/**/*.sv
++incdir+proj/include
++incdir+fusesoc_libraries/hasunosora-hdl-infra.git/proj/include

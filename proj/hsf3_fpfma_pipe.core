@@ -1,0 +1,107 @@
+CAPI=2:
+name: hasunosora:arith:fpfma_pipe:0.1
+description: Pipelined Parameterized Precision Floating Point Fused Multiply-Adder (FMA)
+
+filesets:
+  include:
+    files:
+      - include/hsf3_macros.svh:
+          is_include_file: true
+    file_type: systemVerilogSource
+  pkg:
+    depend:
+      - ">=hasunosora:infra:include:0.1a0"
+      - ">=hasunosora:infra:typedefs_pkg:0.1a0"
+    files:
+      - pkg/hsf3_typedef_pkg.sv
+    file_type: systemVerilogSource
+  rtl:
+    depend:
+      - ">=hasunosora:infra:include:0.1a0"
+      - ">=hasunosora:infra:typedefs_pkg:0.1a0"
+      - ">=hasunosora:dpath:skid_buffer:0.1a0"
+      - ">=hasunosora:math:basic_pkg:0.1a1"
+    files:
+      - rtl/postmul/hsf3_postmul.sv
+      - rtl/aalu/hsf3_cadder.sv
+      - rtl/aalu/hsf3_aalu.sv
+      - rtl/common/hsf3_lshift.sv
+      - rtl/common/hsf3_grs_rshift.sv
+      - rtl/common/hsf3_bvd.sv
+      - rtl/common/hsf3_hblzc.sv
+      - rtl/rnd_pack/hsf3_rnd_pack.sv
+      - rtl/rnd_pack/hsf3_grs_round.sv
+      - rtl/malu/hsf3_fma_sp_result_gen.sv
+      - rtl/malu/hsf3_cmul.sv
+      - rtl/malu/hsf3_exp_extract.sv
+      - rtl/malu/hsf3_malu.sv
+      - rtl/malu/hsf3_exp_sum.sv
+      - rtl/malu/hsf3_mul_sp_result_gen.sv
+      - rtl/renorm/hsf3_renorm.sv
+      - rtl/hsf3_fpfma_pipe.sv
+    file_type: systemVerilogSource
+  cocotb_wrapper:
+    files:
+      - tb/hsf3_fpfma_duv_top.sv
+    file_type: systemVerilogSource
+  cocotb:
+    files:
+      - tb/cocotb/hsf3_wrapper_test.py : {file_type: user, copyto: .}
+      - tb/cocotb/FloatingPoint.py : {file_type: user, copyto: .}
+      - tb/cocotb/FmaAgent.py : {file_type: user, copyto: .}
+      - tb/cocotb/FmaScoreboard.py : {file_type: user, copyto: .}
+      - tb/cocotb/FmaTestbench.py : {file_type: user, copyto: .}
+      - tb/cocotb/FmaTransactions.py : {file_type: user, copyto: .}
+  sim_script:
+    files:
+      - tb/script/xrun.tcl: {copyto: xrun_debug.tcl}
+    file_type: user
+
+parameters:
+  EXPONENT_WIDTH: {datatype: int, paramtype: vlogparam, default: 8}
+  MANTISSA_WIDTH: {datatype: int, paramtype: vlogparam, default: 23}
+  FP_ROUND_MODE: {datatype: int, paramtype: vlogparam, default: 0}
+
+targets:
+  default: &default
+    filesets:
+      - include
+      - pkg
+      - rtl
+  sim:
+    <<: *default
+    filesets_append:
+      - cocotb_wrapper
+      - cocotb
+    toplevel: hsf3_fpfma_duv_top
+    flow: sim
+    parameters: &sim_parameters
+      - EXPONENT_WIDTH
+      - MANTISSA_WIDTH
+      - FP_ROUND_MODE
+    flow_options: &xcelium_cocotb
+      tool: xcelium
+      cocotb_module: hsf3_wrapper_test
+      xrun_options:
+        - -timescale
+        - 1ns/1ps
+        - +define+USE_DEFAULT_NETTYPE_WIRE
+    description: Cocotb regression with Xcelium
+  sim_debug:
+    <<: *default
+    filesets_append:
+      - cocotb_wrapper
+      - cocotb
+      - sim_script
+    toplevel: hsf3_fpfma_duv_top
+    flow: sim
+    parameters: *sim_parameters
+    flow_options:
+      <<: *xcelium_cocotb
+      xrun_options:
+        - -timescale
+        - 1ns/1ps
+        - +define+USE_DEFAULT_NETTYPE_WIRE
+        - -lwdgen
+        - -coverage all -covoverwrite -covtest hsf3_fpfma_pipe
+    description: Cocotb simulation with waveform and RTL coverage

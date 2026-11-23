@@ -1,0 +1,139 @@
+#--  Synopsys, Inc.
+#--  Version T-2022.09-SP1
+#--  Project file /home/onodera/Projects/ip/hsf3-fpfma-pipe/fpga/hsf3_fpfma_pipe.prj
+#--  Written on Tue Nov 24 02:54:37 2026
+
+
+#project folders
+add_folder {rtl}  
+add_folder {rtl/aalu}  
+add_folder {rtl/common}  
+add_folder {rtl/malu}  
+add_folder {rtl/postmul}  
+add_folder {rtl/renorm}  
+add_folder {rtl/rnd_pack}  
+add_folder {infra}  
+add_folder {infra/rtl}  
+add_folder {infra/rtl/datapath}  
+add_folder {infra/pkg}  
+add_folder {pkg}  
+
+#project files
+add_file -verilog -vlog_std sysv -folder {infra/pkg} "../fusesoc_libraries/hasunosora-hdl-infra.git/proj/pkg/hs_ifr_misc_typedefs_pkg.sv"
+add_file -verilog -vlog_std sysv -folder {infra/pkg} "../fusesoc_libraries/hasunosora-hdl-infra.git/proj/pkg/hs_math_basic_pkg.sv"
+add_file -verilog -vlog_std sysv -folder {infra/rtl/datapath} "../fusesoc_libraries/hasunosora-hdl-infra.git/proj/rtl/datapath/hs_dpath_skid_buffer.sv"
+add_file -verilog -vlog_std sysv -folder {pkg} "../proj/pkg/hsf3_typedef_pkg.sv"
+add_file -verilog -vlog_std sysv -folder {rtl} "../proj/rtl/hsf3_fpfma_pipe.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/postmul} "../proj/rtl/postmul/hsf3_postmul.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/aalu} "../proj/rtl/aalu/hsf3_cadder.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/aalu} "../proj/rtl/aalu/hsf3_aalu.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_lshift.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_grs_rshift.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_bvd.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_hblzc.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/rnd_pack} "../proj/rtl/rnd_pack/hsf3_rnd_pack.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/rnd_pack} "../proj/rtl/rnd_pack/hsf3_grs_round.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_fma_sp_result_gen.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_cmul.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_exp_extract.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_malu.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_exp_sum.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_mul_sp_result_gen.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/renorm} "../proj/rtl/renorm/hsf3_renorm.sv"
+
+
+#implementation: "rev_1"
+impl -add rev_1 -type fpga
+
+#
+#implementation attributes
+
+set_option -vlog_std sysv
+set_option -num_startend_points 5
+set_option -project_relative_includes 1
+set_option -include_path {../proj/include/;../fusesoc_libraries/hasunosora-hdl-infra.git/proj/include/}
+
+#par_1 attributes
+set_option -job par_1 -add par
+
+#device options
+set_option -technology KINTEX-ULTRASCALEPLUS-FPGAS
+set_option -part XCKU5P
+set_option -package FFVA676
+set_option -speed_grade -1-e
+set_option -part_companion ""
+
+#compilation/mapping options
+set_option -use_fsm_explorer 0
+set_option -top_module "hsf3_fpfma_pipe"
+
+# hdl_compiler_options
+set_option -distributed_compile 1
+set_option -scm2hydra 0
+set_option -hdl_strict_syntax 0
+
+# mapper_without_write_options
+set_option -frequency 350.000000
+set_option -srs_instrumentation 1
+
+# mapper_options
+set_option -write_verilog 1
+set_option -write_structural_verilog 0
+set_option -write_vhdl 0
+
+# xilinx_options
+set_option -rw_check_on_ram 1
+set_option -reporting_ctd slack
+set_option -optimize_ngc 1
+
+# Xilinx Virtex2
+set_option -run_prop_extract 1
+set_option -maxfan 10000
+set_option -disable_io_insertion 0
+set_option -pipe 1
+set_option -update_models_cp 0
+set_option -retiming 0
+set_option -no_sequential_opt 0
+set_option -no_sequential_opt_bram_mapping both
+set_option -fix_gated_and_generated_clocks 1
+
+# common_options
+set_option -add_dut_hierarchy 0
+set_option -prepare_readback 0
+
+# Xilinx Kintex UltraScale+ FPGAs
+set_option -enable_prepacking 1
+set_option -use_vivado 1
+
+# timing_analyst_options
+set_option -reporting_filter {-from {{{i:aalu_renorm_pipe_inst.fth_dp\.out_data\.mant_sum_mod_fast[12]}} } -to {{i:renorm_rnd_pack_pipe_inst.fth_dp\.out_data\.grs\.sticky} }}
+set_option -reporting_number_paths 1
+set_option -reporting_netlist /home/onodera/Projects/ip/hsf3-fpfma-pipe/fpga/rev_1/synth_index_1.srm
+set_option -reporting_output_srm 0
+
+# flow_options
+set_option -use_unified_compile 0
+set_option -use_module_idb 1
+
+# sequential_optimization_options
+set_option -symbolic_fsm_compiler 1
+
+# Compiler Options
+set_option -compiler_compatible 0
+set_option -resource_sharing 1
+set_option -multi_file_compilation_unit 1
+
+# Compiler Options
+set_option -auto_infer_blackbox 0
+
+#timing report file option
+set_option -reporting_filename "rev_1/synth_index_1.ta"
+
+#automatic place and route (vendor) options
+set_option -write_apr_constraint 1
+
+#set result format/file last
+project -result_file "rev_1/hsf3_renorm.edf"
+
+#design plan options
+impl -active "rev_1"

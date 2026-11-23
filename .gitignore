@@ -1,0 +1,34 @@
+# DVT project metadata
+.metadata
+dvt_cli_socket
+.build_config_dict
+.project
+*.build.auto.1
+default.ls
+.profiling
+
+# FuseSoC libraries
+fusesoc_libraries/
+
+# Build output
+build
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swap
+*.bak
+
+# Log files
+*.log
+
+# FPGA project files
+fpga/*
+!fpga/*.prj
+
+# AI agent files
+AGENTS.md
+CLAUDE.md
+.repowise/
+.serena/
