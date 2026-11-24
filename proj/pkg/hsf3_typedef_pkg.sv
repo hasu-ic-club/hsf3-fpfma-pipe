@@ -64,14 +64,15 @@ package hsf3_typedef_pkg;
         logic c_sign;
         logic c_zero;
         logic result_pass;
-    } malu_flags_s;
+    } preproc_flags_s;
 
     typedef struct packed
     {
+        logic prod_sign;
+        logic c_sign;
         logic add_sub;
-        logic result_sign;
         logic result_pass;
-    } postmul_flags_s;
+    } malu_flags_s;
 
     typedef struct packed
     {

@@ -5,6 +5,9 @@ It can be configured to support various floating point formats by adjusting the 
 
 This IP is pipelined to achieve high throughput, making it suitable for applications requiring fast floating point arithmetic operations.
 
+## Update in Nov 24, 2026
+We moved multiplier stage to 2nd stage and the 1st stage only do denormalized mantissa LZC and special value determination now. This increased the fMax performance.
+
 ## Features
 - Fully pipelined architecture w/ II = 1
 - Parameterized exponent and mantissa widths
@@ -14,7 +17,6 @@ This IP is pipelined to achieve high throughput, making it suitable for applicat
     - Round towards Positive Infinity
     - Round towards Negative Infinity
 - Exception compatible: NaN/Infinity input and output
-
 
 ## Getting Started
 ### FuseSoC and Cocotb Requirements

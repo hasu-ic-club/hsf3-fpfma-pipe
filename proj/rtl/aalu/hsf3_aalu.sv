@@ -53,37 +53,74 @@ import hsf3_typedef_pkg::*;
 #(
     parameter int             EXPONENT_WIDTH = 8,
     parameter int             MANTISSA_WIDTH = 23,
-    `LP_MODULE int LZC_WIDTH       = $clog2(MANTISSA_WIDTH + 1 + 1),
-    `LP_MODULE int REXP_WIDTH      = hs_math_basic_pkg::max(EXPONENT_WIDTH, LZC_WIDTH) + 1,
-    `LP_MODULE int REXP_SUM_WIDTH  = REXP_WIDTH + 2,
-    `LP_MODULE int FULL_PROD_WIDTH = MANTISSA_WIDTH * 2 + 2,
-    `LP_MODULE int ALIGNED_WIDTH   = FULL_PROD_WIDTH + 1,
-    `LP_MODULE int SUM_WIDTH       = ALIGNED_WIDTH + 1
+    `LP_MODULE int LZC_WIDTH        = $clog2(MANTISSA_WIDTH + 1 + 1),
+    `LP_MODULE int REXP_WIDTH       = hs_math_basic_pkg::max(EXPONENT_WIDTH, LZC_WIDTH) + 1,
+    `LP_MODULE int REXP_SUM_WIDTH   = REXP_WIDTH + 2,
+    `LP_MODULE int FULL_PROD_WIDTH  = MANTISSA_WIDTH * 2 + 2,
+    `LP_MODULE int ALIGNED_WIDTH    = FULL_PROD_WIDTH + 2,
+    `LP_MODULE int SUM_WIDTH        = ALIGNED_WIDTH + 1,
+    `LP_MODULE int SFT_AMOUNT_WIDTH = $clog2(ALIGNED_WIDTH + 1)
 )
 (
-    // Input aligned operands
-    input  logic                  [ALIGNED_WIDTH - 1:0]   mant_x_in,
-    input  logic                  [ALIGNED_WIDTH - 1:0]   mant_y_align_in,
-    input  logic           signed [REXP_SUM_WIDTH - 1:0]  exp_base_in,
-
-    input  postmul_flags_s                                flags_in,
+    // Raw product, aligned C and remaining alignment control
+    input  logic                  [FULL_PROD_WIDTH - 1:0]   prod_mant_in,
+    input  logic                  [ALIGNED_WIDTH - 1:0]     c_mant_align_in,
+    input  logic           signed [REXP_SUM_WIDTH - 1:0]    exp_base_in,
+    input  logic                  [SFT_AMOUNT_WIDTH - 1:0]  sft_amount_in,
+    input  logic                                            shift_prod_in,
+    input  logic                                            cmp_mant_en_in,
+    input  malu_flags_s                                     flags_in,
 
     // Adder result output
-    output logic                  [SUM_WIDTH - 1:0]       mant_sum_out,
-    output logic           signed [REXP_SUM_WIDTH - 1:0]  exp_base_out,
+    output logic                  [SUM_WIDTH - 1:0]         mant_sum_out,
+    output logic           signed [REXP_SUM_WIDTH - 1:0]    exp_base_out,
 
-    output aalu_flags_s                                   flags_out
+    output aalu_flags_s                                     flags_out
 );
 
-`HSF3_MANTISSA_TYPEDEF(MANTISSA_WIDTH);
-`HSF3_EXPONENT_TYPEDEF(EXPONENT_WIDTH);
-`HSF3_FP_TYPEDEF(EXPONENT_WIDTH, MANTISSA_WIDTH);
-
-`HSF3_EXT_MANT_TYPEDEF(MANTISSA_WIDTH);
 `HSF3_MANTISSA_ALIGNED_TYPEDEF(MANTISSA_WIDTH);
 
-// Exact zero determination
-logic x_eq_y;
+typedef logic [SUM_WIDTH - 1:0] mant_sum_t;
+
+logic          [SFT_AMOUNT_WIDTH - 1:0]   prod_sft_amount;
+logic          [FULL_PROD_WIDTH - 1:0]    prod_mant_shifted_hi;
+grs_s                                     prod_sft_grs_out;
+mant_aligned_t                            prod_mant_align;
+logic          [MANTISSA_WIDTH + 1:0]     prod_mant_cmp;
+logic                                     c_large;
+mant_aligned_t                            mant_x;
+mant_aligned_t                            mant_y;
+mant_sum_t                                mant_sum;
+logic                                     x_eq_y;
+
+// Align the raw product when C has the larger base exponent.
+assign prod_sft_amount       = shift_prod_in ? sft_amount_in : '0;
+
+hsf3_grs_rshift #(
+    .DATA_WIDTH      (FULL_PROD_WIDTH ),
+    .SFT_AMOUNT_WIDTH(SFT_AMOUNT_WIDTH)
+)
+prod_align_rshift_inst (
+    .grs_in  ('0                  ),
+    .data_in (prod_mant_in        ),
+    .sft_in  (prod_sft_amount     ),
+    .data_out(prod_mant_shifted_hi),
+    .grs_out (prod_sft_grs_out    )
+);
+
+assign prod_mant_align       = {prod_mant_shifted_hi, prod_sft_grs_out.guard,
+        prod_sft_grs_out.round | prod_sft_grs_out.sticky};
+
+// For exponent differences of 0 and -1, C has zero padding below the
+// compared slice. Use fixed product slices in parallel with the right shifter.
+assign prod_mant_cmp         = shift_prod_in ?
+    {1'b0, prod_mant_in[FULL_PROD_WIDTH - 1:MANTISSA_WIDTH + 1]} :
+    prod_mant_in[FULL_PROD_WIDTH - 1:MANTISSA_WIDTH];
+assign c_large               = cmp_mant_en_in ?
+    (prod_mant_cmp < c_mant_align_in[ALIGNED_WIDTH - 1:MANTISSA_WIDTH + 2]) : shift_prod_in;
+
+assign mant_x                = c_large ? c_mant_align_in : prod_mant_align;
+assign mant_y                = c_large ? prod_mant_align : c_mant_align_in;
 
 // Core adder
 hsf3_cadder #(
@@ -91,24 +128,25 @@ hsf3_cadder #(
 )
 cadder_inst
 (
-    .op_a_in   (mant_x_in       ),
-    .op_b_in   (mant_y_align_in ),
+    .op_a_in   (mant_x          ),
+    .op_b_in   (mant_y          ),
     .add_sub   (flags_in.add_sub),
-    .result_out(mant_sum_out    )
+    .result_out(mant_sum        )
 );
 
 // Exact zero determine
-assign x_eq_y                = mant_x_in == mant_y_align_in;
+assign x_eq_y                = mant_x == mant_y;
 assign flags_out.exact_zero  = !flags_in.result_pass &&
     flags_in.add_sub && x_eq_y;
 
-// Pass the exponent base
-always_comb begin : pass_exp_base
+// Forward the encoded bypass mantissa and exponent.
+always_comb begin : bypass_fwd
+    mant_sum_out = flags_in.result_pass ? mant_sum_t'(c_mant_align_in) : mant_sum;
     exp_base_out = exp_base_in;
-end : pass_exp_base
+end : bypass_fwd
 
 // Pass other flags
 assign flags_out.result_pass = flags_in.result_pass;
-assign flags_out.result_sign = flags_in.result_sign;
+assign flags_out.result_sign = (flags_in.result_pass || c_large) ? flags_in.c_sign : flags_in.prod_sign;
 
 endmodule : hsf3_aalu

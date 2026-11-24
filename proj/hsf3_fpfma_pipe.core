@@ -1,5 +1,5 @@
 CAPI=2:
-name: hasunosora:arith:fpfma_pipe:0.1
+name: hasunosora:arith:fpfma_pipe:0.2
 description: Pipelined Parameterized Precision Floating Point Fused Multiply-Adder (FMA)
 
 filesets:
@@ -22,7 +22,7 @@ filesets:
       - ">=hasunosora:dpath:skid_buffer:0.1a0"
       - ">=hasunosora:math:basic_pkg:0.1a1"
     files:
-      - rtl/postmul/hsf3_postmul.sv
+      - rtl/preproc/hsf3_preproc.sv
       - rtl/aalu/hsf3_cadder.sv
       - rtl/aalu/hsf3_aalu.sv
       - rtl/common/hsf3_lshift.sv

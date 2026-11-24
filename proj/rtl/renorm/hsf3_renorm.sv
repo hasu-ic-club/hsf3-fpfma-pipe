@@ -58,7 +58,7 @@ import hsf3_typedef_pkg::*;
     `LP_MODULE int REXP_WIDTH      = hs_math_basic_pkg::max(EXPONENT_WIDTH, LZC_WIDTH) + 1,
     `LP_MODULE int REXP_SUM_WIDTH  = REXP_WIDTH + 2,
     `LP_MODULE int FULL_PROD_WIDTH = MANTISSA_WIDTH * 2 + 2,
-    `LP_MODULE int ALIGNED_WIDTH   = FULL_PROD_WIDTH + 1,
+    `LP_MODULE int ALIGNED_WIDTH   = FULL_PROD_WIDTH + 2,
     `LP_MODULE int SUM_WIDTH       = ALIGNED_WIDTH + 1
 )
 (
@@ -89,6 +89,7 @@ typedef logic [FULL_SUM_LZC_WIDTH - 1:0] sum_lzc_t;
 localparam    int PAD_BITS           = MANTISSA_WIDTH + 3;
 localparam    int SFT_DATA_WIDTH     = SUM_WIDTH + PAD_BITS - 2;
 localparam    int RENORM_CALC_WIDTH  = REXP_SUM_WIDTH + 1;
+localparam    int HIDDEN_OFFSET      = SUM_WIDTH - 1 - FULL_PROD_WIDTH;
 
 typedef logic [SFT_DATA_WIDTH - 1:0] mant_sft_t;
 typedef logic signed [RENORM_CALC_WIDTH - 1:0] renorm_calc_t;
@@ -100,6 +101,7 @@ sum_lzc_t         mant_sum_lzc;
 // Renormalization scaling
 renorm_calc_t     exp_base_calc;
 renorm_calc_t     lzc_calc;
+renorm_calc_t     lzc_limit;
 renorm_calc_t     scale;
 renorm_calc_t     exp_rnd_calc;
 sft_amount_t      sft_amount;
@@ -121,8 +123,9 @@ lzc_inst
 // Renormalization scaling
 assign exp_base_calc         = renorm_calc_t'(exp_base_in);
 assign lzc_calc              = renorm_calc_t'({1'b0, mant_sum_lzc});
-assign scale                 = (exp_base_calc < lzc_calc) ? exp_base_calc : lzc_calc;
-assign exp_rnd_calc          = exp_base_calc - scale + renorm_calc_t'(1);
+assign lzc_limit             = exp_base_calc + renorm_calc_t'(HIDDEN_OFFSET - 1);
+assign scale                 = (lzc_limit < lzc_calc) ? lzc_limit : lzc_calc;
+assign exp_rnd_calc          = exp_base_calc - scale + renorm_calc_t'(HIDDEN_OFFSET);
 
 assign sft_amount            = (flags_in.result_pass || flags_in.exact_zero) ?
     '0 :
@@ -148,7 +151,7 @@ renorm_rshift_inst
 always_comb begin : out_mux
     if (flags_in.result_pass) begin
         // Pass the lower bits to result when bypass
-        mant_pre_rnd_out = mant_sum_in[MANTISSA_WIDTH - 1:0];
+        mant_pre_rnd_out = {1'b1, mant_sum_in[MANTISSA_WIDTH - 1:0]};
         exp_rnd_out      = exp_base_in;
         grs_out          = '0;
     end
