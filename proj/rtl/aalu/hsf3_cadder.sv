@@ -53,17 +53,13 @@ module hsf3_cadder
 (
     input  logic [DATA_WIDTH - 1:0]     op_a_in,
     input  logic [DATA_WIDTH - 1:0]     op_b_in,
-    input  logic                        add_sub,
+    input  logic                        invert_a,
+    input  logic                        invert_b,
 
     output logic [DATA_WIDTH + 1 - 1:0] result_out
 );
 
-//  add_sub | Fomular | b (adder) | cin (adder)
-// -----------------------------------------
-//  0       | A + B   |  op_b     | 0
-//  1       | A - B   | ~op_b     | 1
-
-// Real operators input to adder
+// Invert either operand and add one to form its two's complement.
 logic [DATA_WIDTH - 1:0] adder_op_a;
 logic [DATA_WIDTH - 1:0] adder_op_b;
 logic                    adder_cin;
@@ -71,12 +67,12 @@ logic                    adder_cin;
 logic [DATA_WIDTH - 1:0] adder_result;
 logic                    adder_cout;
 
-assign adder_op_a                 = op_a_in;
-assign adder_op_b                 = op_b_in ^ {DATA_WIDTH{add_sub}};
-assign adder_cin                  = add_sub;
+assign adder_op_a                 = op_a_in ^ {DATA_WIDTH{invert_a}};
+assign adder_op_b                 = op_b_in ^ {DATA_WIDTH{invert_b}};
+assign adder_cin                  = invert_a || invert_b;
 
 assign {adder_cout, adder_result} = adder_op_a + adder_op_b + adder_cin;
 
-assign result_out                 = {adder_cout ^ add_sub, adder_result};
+assign result_out                 = {adder_cout ^ adder_cin, adder_result};
 
 endmodule : hsf3_cadder

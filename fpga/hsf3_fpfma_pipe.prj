@@ -29,6 +29,7 @@ add_file -verilog -vlog_std sysv -folder {rtl/aalu} "../proj/rtl/aalu/hsf3_cadde
 add_file -verilog -vlog_std sysv -folder {rtl/aalu} "../proj/rtl/aalu/hsf3_aalu.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_lshift.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_grs_rshift.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_jam_rshift.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_bvd.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/common} "../proj/rtl/common/hsf3_hblzc.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/rnd_pack} "../proj/rtl/rnd_pack/hsf3_rnd_pack.sv"
@@ -40,6 +41,8 @@ add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_malu.
 add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_exp_sum.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/malu} "../proj/rtl/malu/hsf3_mul_sp_result_gen.sv"
 add_file -verilog -vlog_std sysv -folder {rtl/renorm} "../proj/rtl/renorm/hsf3_renorm.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/renorm} "../proj/rtl/renorm/hsf3_renorm_coarse_sft.sv"
+add_file -verilog -vlog_std sysv -folder {rtl/rnd_pack} "../proj/rtl/rnd_pack/hsf3_renorm_fine.sv"
 add_file -constraint "timing_constrain.sdc"
 
 

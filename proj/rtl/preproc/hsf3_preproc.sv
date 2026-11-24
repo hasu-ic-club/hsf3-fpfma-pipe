@@ -59,26 +59,22 @@ import hsf3_typedef_pkg::*;
     `LP_MODULE int OP_WIDTH         = 1 + EXPONENT_WIDTH + MANTISSA_WIDTH,
     `LP_MODULE int LZC_WIDTH        = $clog2(MANTISSA_WIDTH + 1 + 1),
     `LP_MODULE int REXP_WIDTH       = hs_math_basic_pkg::max(EXPONENT_WIDTH, LZC_WIDTH) + 1,
-    `LP_MODULE int REXP_SUM_WIDTH   = REXP_WIDTH + 2,
-    `LP_MODULE int ALIGNED_WIDTH    = MANTISSA_WIDTH * 2 + 4,
-    `LP_MODULE int SFT_AMOUNT_WIDTH = $clog2(ALIGNED_WIDTH + 1)
+    `LP_MODULE int REXP_SUM_WIDTH   = REXP_WIDTH + 2
 )
 (
     // Input operands
-    input  logic                  [OP_WIDTH - 1:0]           op_a_in,
-    input  logic                  [OP_WIDTH - 1:0]           op_b_in,
-    input  logic                  [OP_WIDTH - 1:0]           op_c_in,
+    input  logic                  [OP_WIDTH - 1:0]       op_a_in,
+    input  logic                  [OP_WIDTH - 1:0]       op_b_in,
+    input  logic                  [OP_WIDTH - 1:0]       op_c_in,
 
-    // Pre-normalized operands and alignment control for MALU
-    output logic                  [MANTISSA_WIDTH:0]         mant_a_out,
-    output logic                  [MANTISSA_WIDTH:0]         mant_b_out,
-    output logic                  [MANTISSA_WIDTH:0]         c_mant_out,
-    output logic           signed [REXP_SUM_WIDTH - 1:0]     exp_base_out,
-    output logic                  [SFT_AMOUNT_WIDTH - 1:0]   sft_amount_out,
-    output logic                                             shift_prod_out,
-    output logic                                             cmp_mant_en_out,
+    // Pre-normalized operands and exponents for MALU
+    output logic                  [MANTISSA_WIDTH:0]     mant_a_out,
+    output logic                  [MANTISSA_WIDTH:0]     mant_b_out,
+    output logic                  [MANTISSA_WIDTH:0]     c_mant_out,
+    output logic           signed [REXP_SUM_WIDTH - 1:0] prod_exp_out,
+    output logic           signed [REXP_WIDTH - 1:0]     c_exp_or_pass_out,
 
-    output preproc_flags_s                                   flags_out
+    output preproc_flags_s                               flags_out
 );
 
 `HSF3_FP_TYPEDEF(EXPONENT_WIDTH, MANTISSA_WIDTH);
@@ -86,9 +82,6 @@ import hsf3_typedef_pkg::*;
 
 typedef logic [LZC_WIDTH - 1:0] lzc_t;
 typedef logic signed [REXP_WIDTH - 1:0] rexp_t;
-typedef logic signed [REXP_SUM_WIDTH - 1:0] rexp_sum_t;
-typedef logic        [REXP_SUM_WIDTH - 1:0] exp_gap_t;
-typedef logic        [SFT_AMOUNT_WIDTH - 1:0] sft_amount_t;
 
 // FP format structure
 fp_s               op_a_fp;
@@ -129,18 +122,10 @@ rexp_t             rexp_a;
 rexp_t             rexp_b;
 rexp_t             rexp_c;
 
-// Alignment control before product normalization
-rexp_sum_t         prod_exp;
-rexp_sum_t         c_exp_ext;
-rexp_sum_t         exp_diff;
-exp_gap_t          exp_gap;
-sft_amount_t       sft_amount;
-logic              align_en;
-
 // Assign input operators to FP format
-assign op_a_fp                        = fp_s'(op_a_in);
-assign op_b_fp                        = fp_s'(op_b_in);
-assign op_c_fp                        = fp_s'(op_c_in);
+assign op_a_fp               = fp_s'(op_a_in);
+assign op_b_fp               = fp_s'(op_b_in);
+assign op_c_fp               = fp_s'(op_c_in);
 
 // Classify A and B and resolve special values of their product.
 hsf3_mul_sp_result_gen #(
@@ -192,16 +177,17 @@ fma_sp_result_gen_inst
 );
 
 // On a bypass, carry the encoded result in the existing C fields.
-assign c_mant_out                     = result_pass ? {1'b0, pass_result.mantissa} : frcn_mant_c;
-assign flags_out.prod_sign            = prod_sign;
-assign flags_out.c_sign               = result_pass ? pass_result.sign : op_c_fp.sign;
-assign flags_out.c_zero               = op_c_zero;
-assign flags_out.result_pass          = result_pass;
+assign c_mant_out            = result_pass ? {1'b0, pass_result.mantissa} : frcn_mant_c;
+assign c_exp_or_pass_out     = result_pass ? rexp_t'({1'b0, pass_result.exp}) : rexp_c;
+assign flags_out.prod_sign   = prod_sign;
+assign flags_out.c_sign      = result_pass ? pass_result.sign : op_c_fp.sign;
+assign flags_out.c_zero      = op_c_zero;
+assign flags_out.result_pass = result_pass;
 
 // A zero exponent field has no hidden bit, including for signed zero.
-assign ext_mant_a                     = {|op_a_fp.exp, op_a_fp.mantissa};
-assign ext_mant_b                     = {|op_b_fp.exp, op_b_fp.mantissa};
-assign ext_mant_c                     = {|op_c_fp.exp, op_c_fp.mantissa};
+assign ext_mant_a            = {|op_a_fp.exp, op_a_fp.mantissa};
+assign ext_mant_b            = {|op_b_fp.exp, op_b_fp.mantissa};
+assign ext_mant_c            = {|op_c_fp.exp, op_c_fp.mantissa};
 
 // Leading zero counter for de-normalized numbers
 hsf3_hblzc
@@ -277,8 +263,8 @@ denorm_mant_c_lsft_inst
     .data_out(frcn_mant_c)
 );
 
-assign mant_a_out                     = frcn_mant_a;
-assign mant_b_out                     = frcn_mant_b;
+assign mant_a_out            = frcn_mant_a;
+assign mant_b_out            = frcn_mant_b;
 
 // Exponent extract
 hsf3_exp_extract
@@ -327,31 +313,9 @@ hsf3_exp_sum #(
 )
 rexp_sum_inst
 (
-    .rexp_a_in(rexp_a  ),
-    .rexp_b_in(rexp_b  ),
-    .prod_exp (prod_exp)
+    .rexp_a_in(rexp_a      ),
+    .rexp_b_in(rexp_b      ),
+    .prod_exp (prod_exp_out)
 );
-
-// Align against the raw product exponent to avoid waiting for its highest bit.
-assign c_exp_ext                      = rexp_sum_t'(rexp_c);
-assign exp_diff                       = prod_exp - c_exp_ext;
-assign exp_gap                        = $unsigned(exp_diff[REXP_SUM_WIDTH - 1] ? -exp_diff : exp_diff);
-assign sft_amount                     = (exp_gap >= exp_gap_t'(ALIGNED_WIDTH)) ?
-    sft_amount_t'(ALIGNED_WIDTH) : sft_amount_t'(exp_gap);
-
-assign align_en                       = !result_pass && !op_c_zero;
-assign shift_prod_out                 = align_en && exp_diff[REXP_SUM_WIDTH - 1];
-assign cmp_mant_en_out                = align_en &&
-    ((exp_diff == rexp_sum_t'(0)) || (exp_diff == rexp_sum_t'(-1)));
-assign sft_amount_out                 = align_en ? sft_amount : '0;
-
-always_comb begin : exp_base_sel
-    if (result_pass) begin
-        exp_base_out                  = rexp_sum_t'({1'b0, pass_result.exp});
-    end
-    else begin
-        exp_base_out                  = shift_prod_out ? c_exp_ext : prod_exp;
-    end
-end : exp_base_sel
 
 endmodule : hsf3_preproc

@@ -22,12 +22,14 @@
 // AUTHOR:    Onodera Tsusaki
 // EMAIL:     apertureelectronic@outlook.com
 //-------------------------------------------------------------------------
-// RELEASE VERSION: 0.1
-// VERSION DESCRIPTION: First Edition
+// RELEASE VERSION: 0.2
+// VERSION DESCRIPTION: Coarse-fine refine shifter version
 //-------------------------------------------------------------------------
 // RELEASES:
 // VERSION    AUTHOR        RELEASE DATE  DESCRIPTION
 // 0.1        O. Tsusaki    2026/11/23    First Edition
+// 0.2        O. Tsusaki    2026/11/24    Enable coarse-fine refine shifter
+//                                        to optimize area and performance
 //
 //-------------------------------------------------------------------------
 // PURPOSE: Result renormalization unit (stage) for pipelined FMA
@@ -40,7 +42,6 @@
 //-FHDR--------------------------------------------------------------------
 
 `include "hs_ifr_global.svh"
-`include "hsf3_macros.svh"
 
 `ifndef USE_DEFAULT_NETTYPE_WIRE
 `default_nettype none
@@ -59,55 +60,47 @@ import hsf3_typedef_pkg::*;
     `LP_MODULE int REXP_SUM_WIDTH  = REXP_WIDTH + 2,
     `LP_MODULE int FULL_PROD_WIDTH = MANTISSA_WIDTH * 2 + 2,
     `LP_MODULE int ALIGNED_WIDTH   = FULL_PROD_WIDTH + 2,
-    `LP_MODULE int SUM_WIDTH       = ALIGNED_WIDTH + 1
+    `LP_MODULE int SUM_WIDTH       = ALIGNED_WIDTH + 1,
+    `LP_MODULE int EXT_MANT_WIDTH  = MANTISSA_WIDTH + 1,
+    `LP_MODULE int WINDOW_WIDTH    = EXT_MANT_WIDTH + RENORM_WINDOW_EXTRA_BITS
 )
 (
     // Input adder result
-    input  logic                 [SUM_WIDTH - 1:0]          mant_sum_in,
-    input  logic          signed [REXP_SUM_WIDTH - 1:0]     exp_base_in,
+    input  logic                    [SUM_WIDTH - 1:0]          mant_sum_in,
+    input  logic             signed [REXP_SUM_WIDTH - 1:0]     exp_base_in,
 
-    input  aalu_flags_s                                     flags_in,
+    input  aalu_flags_s                                        flags_in,
 
     // Renormalization result output
-    output logic                 [MANTISSA_WIDTH + 1 - 1:0] mant_pre_rnd_out,
-    output logic          signed [REXP_SUM_WIDTH - 1:0]     exp_rnd_out,
-    output grs_s                                            grs_out,
+    output logic                    [WINDOW_WIDTH - 1:0]       coarse_window_out,
+    output renorm_fine_off_t                                   fine_offset_out,
+    output logic                                               coarse_sticky_out,
+    output logic             signed [REXP_SUM_WIDTH - 1:0]     exp_rnd_out,
 
-    output renorm_flags_s                                   flags_out
+    output renorm_flags_s                                      flags_out
 );
 
-`HSF3_MANTISSA_TYPEDEF(MANTISSA_WIDTH);
-`HSF3_EXPONENT_TYPEDEF(EXPONENT_WIDTH);
-`HSF3_FP_TYPEDEF(EXPONENT_WIDTH, MANTISSA_WIDTH);
+localparam        int FULL_SUM_LZC_WIDTH = $clog2(SUM_WIDTH + 1);
+localparam        int RENORM_CALC_WIDTH  = REXP_SUM_WIDTH + 1;
+localparam        int HIDDEN_OFFSET      = SUM_WIDTH - 1 - FULL_PROD_WIDTH;
 
-`HSF3_EXT_MANT_TYPEDEF(MANTISSA_WIDTH);
-`HSF3_MANTISSA_ALIGNED_TYPEDEF(MANTISSA_WIDTH);
-
-localparam    int FULL_SUM_LZC_WIDTH = $clog2(SUM_WIDTH + 1);
-typedef logic [FULL_SUM_LZC_WIDTH - 1:0] sum_lzc_t;
-
-localparam    int PAD_BITS           = MANTISSA_WIDTH + 3;
-localparam    int SFT_DATA_WIDTH     = SUM_WIDTH + PAD_BITS - 2;
-localparam    int RENORM_CALC_WIDTH  = REXP_SUM_WIDTH + 1;
-localparam    int HIDDEN_OFFSET      = SUM_WIDTH - 1 - FULL_PROD_WIDTH;
-
-typedef logic [SFT_DATA_WIDTH - 1:0] mant_sft_t;
-typedef logic signed [RENORM_CALC_WIDTH - 1:0] renorm_calc_t;
-typedef logic [RENORM_CALC_WIDTH - 1:0] sft_amount_t;
+typedef logic        [FULL_SUM_LZC_WIDTH - 1:0] sum_lzc_t;
+typedef logic        [WINDOW_WIDTH - 1:0]       renorm_window_t;
+typedef logic signed [RENORM_CALC_WIDTH - 1:0]  renorm_calc_t;
 
 // Leading zero of summary mantissa
-sum_lzc_t         mant_sum_lzc;
+sum_lzc_t             mant_sum_lzc;
 
 // Renormalization scaling
-renorm_calc_t     exp_base_calc;
-renorm_calc_t     lzc_calc;
-renorm_calc_t     lzc_limit;
-renorm_calc_t     scale;
-renorm_calc_t     exp_rnd_calc;
-sft_amount_t      sft_amount;
-mant_sft_t        mant_rsft_pad;
-mant_sft_t        rshift_data;
-grs_s             rshift_grs;
+renorm_calc_t         exp_base_calc;
+renorm_calc_t         lzc_calc;
+renorm_calc_t         lzc_limit;
+renorm_calc_t         scale;
+renorm_calc_t         exp_rnd_calc;
+renorm_calc_t         window_hi;
+renorm_window_t       coarse_window;
+renorm_fine_off_t     fine_offset;
+logic                 coarse_sticky;
 
 // Leading zero counter (LZC) for result summary mantissa
 hsf3_hblzc #(
@@ -126,46 +119,43 @@ assign lzc_calc              = renorm_calc_t'({1'b0, mant_sum_lzc});
 assign lzc_limit             = exp_base_calc + renorm_calc_t'(HIDDEN_OFFSET - 1);
 assign scale                 = (lzc_limit < lzc_calc) ? lzc_limit : lzc_calc;
 assign exp_rnd_calc          = exp_base_calc - scale + renorm_calc_t'(HIDDEN_OFFSET);
+assign window_hi             = renorm_calc_t'(SUM_WIDTH - 1) - scale;
 
-assign sft_amount            = (flags_in.result_pass || flags_in.exact_zero) ?
-    '0 :
-    $unsigned(renorm_calc_t'(SUM_WIDTH - 1) - scale);
-
-// Right shift mantissa to renormalize
-assign mant_rsft_pad         = {mant_sum_in, {(PAD_BITS - 2){1'b0}}};
-
-hsf3_grs_rshift #(
-    .DATA_WIDTH      (SFT_DATA_WIDTH   ),
-    .SFT_AMOUNT_WIDTH(RENORM_CALC_WIDTH)
+// Coarse window selection (mutliple-bit group) and
+// do fine renormalization in the next stage.
+hsf3_renorm_coarse_sft #(
+    .MANTISSA_WIDTH (MANTISSA_WIDTH   ),
+    .WINDOW_HI_WIDTH(RENORM_CALC_WIDTH)
 )
-renorm_rshift_inst
+renorm_coarse_sft_inst
 (
-    .grs_in  ('0           ),
-    .data_in (mant_rsft_pad),
-    .sft_in  (sft_amount   ),
-    .data_out(rshift_data  ),
-    .grs_out (rshift_grs   )
+    .mant_sum_in      (mant_sum_in  ),
+    .window_hi_in     (window_hi    ),
+    .coarse_window_out(coarse_window),
+    .fine_offset_out  (fine_offset  ),
+    .coarse_sticky_out(coarse_sticky)
 );
 
 // Output selection
 always_comb begin : out_mux
     if (flags_in.result_pass) begin
-        // Pass the lower bits to result when bypass
-        mant_pre_rnd_out = {1'b1, mant_sum_in[MANTISSA_WIDTH - 1:0]};
-        exp_rnd_out      = exp_base_in;
-        grs_out          = '0;
+        // Place the bypass mantissa and zero G/R at fine offset zero.
+        coarse_window_out = renorm_window_t'({1'b1, mant_sum_in[MANTISSA_WIDTH - 1:0], 2'b00});
+        fine_offset_out   = '0;
+        coarse_sticky_out = 1'b0;
+        exp_rnd_out       = exp_base_in;
     end
     else if (flags_in.exact_zero) begin
-        mant_pre_rnd_out = '0;
-        exp_rnd_out      = '0;
-        grs_out          = '0;
+        coarse_window_out = '0;
+        fine_offset_out   = '0;
+        coarse_sticky_out = 1'b0;
+        exp_rnd_out       = '0;
     end
     else begin
-        mant_pre_rnd_out = rshift_data[MANTISSA_WIDTH + 1:1];
-        exp_rnd_out      = exp_rnd_calc[REXP_SUM_WIDTH - 1:0];
-        grs_out.guard    = rshift_data[0];
-        grs_out.round    = rshift_grs.guard;
-        grs_out.sticky   = rshift_grs.round | rshift_grs.sticky;
+        coarse_window_out = coarse_window;
+        fine_offset_out   = fine_offset;
+        coarse_sticky_out = coarse_sticky;
+        exp_rnd_out       = exp_rnd_calc[REXP_SUM_WIDTH - 1:0];
     end
 end : out_mux
 

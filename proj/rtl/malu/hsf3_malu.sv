@@ -63,19 +63,17 @@ import hsf3_typedef_pkg::*;
     `LP_MODULE int SFT_AMOUNT_WIDTH = $clog2(ALIGNED_WIDTH + 1)
 )
 (
-    // Pre-normalized operands and alignment control
+    // Pre-normalized operands and exponents
     input  logic                  [MANTISSA_WIDTH:0]        mant_a_in,
     input  logic                  [MANTISSA_WIDTH:0]        mant_b_in,
     input  logic                  [MANTISSA_WIDTH:0]        c_mant_in,
-    input  logic           signed [REXP_SUM_WIDTH - 1:0]    exp_base_in,
-    input  logic                  [SFT_AMOUNT_WIDTH - 1:0]  sft_amount_in,
-    input  logic                                            shift_prod_in,
-    input  logic                                            cmp_mant_en_in,
+    input  logic           signed [REXP_SUM_WIDTH - 1:0]    prod_exp_in,
+    input  logic           signed [REXP_WIDTH - 1:0]        c_exp_or_pass_in,
     input  preproc_flags_s                                  flags_in,
 
-    // Raw product and aligned C for AALU
+    // Raw product and C mantissa for AALU
     output logic                  [FULL_PROD_WIDTH - 1:0]   prod_mant_out,
-    output logic                  [ALIGNED_WIDTH - 1:0]     c_mant_align_out,
+    output logic                  [MANTISSA_WIDTH:0]        c_mant_out,
     output logic           signed [REXP_SUM_WIDTH - 1:0]    exp_base_out,
     output logic                  [SFT_AMOUNT_WIDTH - 1:0]  sft_amount_out,
     output logic                                            shift_prod_out,
@@ -83,14 +81,15 @@ import hsf3_typedef_pkg::*;
     output malu_flags_s                                     flags_out
 );
 
-`HSF3_MANTISSA_ALIGNED_TYPEDEF(MANTISSA_WIDTH);
+typedef logic signed [REXP_SUM_WIDTH - 1:0]    rexp_sum_t;
+typedef logic        [REXP_SUM_WIDTH - 1:0]    exp_gap_t;
+typedef logic        [SFT_AMOUNT_WIDTH - 1:0]  sft_amount_t;
 
-typedef logic [ALIGNED_WIDTH - 3:0] mant_rshift_t;
-
-mant_aligned_t                             c_mant;
-logic          [SFT_AMOUNT_WIDTH - 1:0]    c_sft_amount;
-mant_rshift_t                              c_mant_shifted_hi;
-grs_s                                      c_sft_grs_out;
+rexp_sum_t    c_exp_ext;
+rexp_sum_t    exp_diff;
+exp_gap_t     exp_gap;
+sft_amount_t  sft_amount;
+logic         align_en;
 
 // Core multiplier for A and B's mantissa
 hsf3_cmul #(
@@ -103,38 +102,39 @@ cmul_inst
     .result_out(prod_mant_out)
 );
 
-// Align C in parallel with the multiplication when its exponent is smaller.
-assign c_mant                = {1'b0, c_mant_in, {(MANTISSA_WIDTH + 2){1'b0}}};
-assign c_sft_amount          = shift_prod_in ? '0 : sft_amount_in;
+// Align against the raw product exponent to avoid waiting for its highest bit.
+assign c_exp_ext              = rexp_sum_t'(c_exp_or_pass_in);
+assign exp_diff               = prod_exp_in - c_exp_ext;
+assign exp_gap                = $unsigned(exp_diff[REXP_SUM_WIDTH - 1] ? -exp_diff : exp_diff);
+assign sft_amount             = (exp_gap >= exp_gap_t'(ALIGNED_WIDTH)) ?
+    sft_amount_t'(ALIGNED_WIDTH) : sft_amount_t'(exp_gap);
 
-hsf3_grs_rshift #(
-    .DATA_WIDTH      ($bits(mant_rshift_t)),
-    .SFT_AMOUNT_WIDTH(SFT_AMOUNT_WIDTH    )
-)
-c_align_rshift_inst (
-    .grs_in  ('0                         ),
-    .data_in (c_mant[ALIGNED_WIDTH - 1:2]),
-    .sft_in  (c_sft_amount               ),
-    .data_out(c_mant_shifted_hi          ),
-    .grs_out (c_sft_grs_out              )
-);
+assign align_en               = !flags_in.result_pass && !flags_in.c_zero;
+assign shift_prod_out         = align_en && exp_diff[REXP_SUM_WIDTH - 1];
+assign cmp_mant_en_out        = align_en &&
+    ((exp_diff == rexp_sum_t'(0)) || (exp_diff == rexp_sum_t'(-1)));
+assign sft_amount_out         = align_en ? sft_amount : '0;
 
-// Keep bypass mantissa bits in the low part of the C datapath.
-assign c_mant_align_out      = flags_in.result_pass ?
-    mant_aligned_t'(c_mant_in[MANTISSA_WIDTH - 1:0]) :
-    {c_mant_shifted_hi, c_sft_grs_out.guard, c_sft_grs_out.round | c_sft_grs_out.sticky};
+always_comb begin : exp_base_sel
+    if (flags_in.result_pass) begin
+        exp_base_out          = c_exp_ext;
+    end
+    else begin
+        exp_base_out          = shift_prod_out ? c_exp_ext : prod_exp_in;
+    end
+end : exp_base_sel
 
-always_comb begin : pass_fields
-    exp_base_out    = exp_base_in;
-    sft_amount_out  = sft_amount_in;
-    shift_prod_out  = shift_prod_in;
-    cmp_mant_en_out = cmp_mant_en_in;
-end : pass_fields
-
-assign flags_out.prod_sign   = flags_in.prod_sign;
-assign flags_out.c_sign      = flags_in.c_sign;
-assign flags_out.add_sub     = !flags_in.result_pass && !flags_in.c_zero &&
+// Determine the add/sub flag by sign
+assign flags_out.add_sub      = !flags_in.result_pass && !flags_in.c_zero &&
     (flags_in.prod_sign ^ flags_in.c_sign);
-assign flags_out.result_pass = flags_in.result_pass;
+
+// Pass C mantissa and flags
+always_comb begin : pass_c_mant
+    c_mant_out = c_mant_in;
+end : pass_c_mant
+
+assign flags_out.prod_sign    = flags_in.prod_sign;
+assign flags_out.c_sign       = flags_in.c_sign;
+assign flags_out.result_pass  = flags_in.result_pass;
 
 endmodule : hsf3_malu
