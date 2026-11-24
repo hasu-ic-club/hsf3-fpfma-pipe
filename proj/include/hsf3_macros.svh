@@ -47,7 +47,7 @@
 
 `define HSF3_PROD_MANT_TYPEDEF(MANT_BW) typedef logic [MANT_BW * 2 + 2 - 1:0] fp_prod_mant_t
 
-`define HSF3_MANTISSA_ALIGNED_TYPEDEF(MANT_BW) typedef logic [MANT_BW * 2 + 2 + 1 - 1:0] mant_aligned_t
+`define HSF3_MANTISSA_ALIGNED_TYPEDEF(MANT_BW) typedef logic [MANT_BW * 2 + 2 + 2 - 1:0] mant_aligned_t
 
 `define HSF3_FP_TYPEDEF(EXP_BW, MANT_BW) typedef struct packed \
 { \

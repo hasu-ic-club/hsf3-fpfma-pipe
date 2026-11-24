@@ -4,7 +4,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := run
 
 FUSESOC ?= fusesoc
-CORE ?= hasunosora:arith:fpfma_pipe:0.1
+CORE ?= hasunosora:arith:fpfma_pipe:0.2
 TARGET ?= sim
 REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BUILD_ROOT ?= $(REPO_ROOT)/build/cocotb

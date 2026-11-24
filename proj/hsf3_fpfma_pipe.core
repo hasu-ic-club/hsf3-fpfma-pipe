@@ -1,5 +1,5 @@
 CAPI=2:
-name: hasunosora:arith:fpfma_pipe:0.1
+name: hasunosora:arith:fpfma_pipe:0.2
 description: Pipelined Parameterized Precision Floating Point Fused Multiply-Adder (FMA)
 
 filesets:
@@ -22,11 +22,12 @@ filesets:
       - ">=hasunosora:dpath:skid_buffer:0.1a0"
       - ">=hasunosora:math:basic_pkg:0.1a1"
     files:
-      - rtl/postmul/hsf3_postmul.sv
+      - rtl/preproc/hsf3_preproc.sv
       - rtl/aalu/hsf3_cadder.sv
       - rtl/aalu/hsf3_aalu.sv
       - rtl/common/hsf3_lshift.sv
       - rtl/common/hsf3_grs_rshift.sv
+      - rtl/common/hsf3_jam_rshift.sv
       - rtl/common/hsf3_bvd.sv
       - rtl/common/hsf3_hblzc.sv
       - rtl/rnd_pack/hsf3_rnd_pack.sv
@@ -38,6 +39,8 @@ filesets:
       - rtl/malu/hsf3_exp_sum.sv
       - rtl/malu/hsf3_mul_sp_result_gen.sv
       - rtl/renorm/hsf3_renorm.sv
+      - rtl/renorm/hsf3_renorm_coarse_sft.sv
+      - rtl/rnd_pack/hsf3_renorm_fine.sv
       - rtl/hsf3_fpfma_pipe.sv
     file_type: systemVerilogSource
   cocotb_wrapper:

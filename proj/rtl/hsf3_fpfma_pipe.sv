@@ -22,12 +22,13 @@
 // AUTHOR:    Onodera Tsusaki
 // EMAIL:     apertureelectronic@outlook.com
 //-------------------------------------------------------------------------
-// RELEASE VERSION: 0.1
-// VERSION DESCRIPTION: First Edition
+// RELEASE VERSION: 0.2
+// VERSION DESCRIPTION: Multiplier Pipeline Optimized Edition
 //-------------------------------------------------------------------------
 // RELEASES:
 // VERSION    AUTHOR        RELEASE DATE  DESCRIPTION
 // 0.1        O. Tsusaki    2026/11/23    First Edition
+// 0.2        O. Tsusaki    2026/11/24    Multiplier Pipeline Optimized Edition
 //
 //-------------------------------------------------------------------------
 // PURPOSE: Pipelined floating-point fused multipy-adder (FMA)
@@ -94,28 +95,33 @@ localparam           int LZC_WIDTH                = $clog2(MANTISSA_WIDTH + 1 + 
 localparam           int REXP_WIDTH               = hs_math_basic_pkg::max(EXPONENT_WIDTH, LZC_WIDTH) + 1;
 localparam           int REXP_SUM_WIDTH           = REXP_WIDTH + 2;
 localparam           int SUM_WIDTH                = $bits(mant_aligned_t) + 1;
+localparam           int SFT_AMOUNT_WIDTH         = $clog2($bits(mant_aligned_t) + 1);
 
-typedef logic signed [REXP_WIDTH - 1:0] rexp_t;
+typedef logic signed [REXP_WIDTH - 1:0]     rexp_t;
 typedef logic signed [REXP_SUM_WIDTH - 1:0] prod_rexp_t;
 typedef logic        [SUM_WIDTH - 1:0]      mant_sum_t;
 
 // Packed structures for inter-stage data path
 typedef struct packed
 {
-    fp_prod_mant_t mant_prod;
-    prod_rexp_t    rexp_prod;
-    malu_flags_s   flags;
-    fp_ext_mant_t  c_mant;
-    rexp_t         c_exp;
-} malu_postmul_dp_s;
+    fp_ext_mant_t   mant_a;
+    fp_ext_mant_t   mant_b;
+    fp_ext_mant_t   c_mant;
+    prod_rexp_t     prod_exp;
+    rexp_t          c_exp_or_pass;
+    preproc_flags_s flags;
+} preproc_malu_dp_s;
 
 typedef struct packed
 {
-    mant_aligned_t  mant_x;
-    mant_aligned_t  mant_y_align;
-    prod_rexp_t     exp_base;
-    postmul_flags_s flags;
-} postmul_aalu_dp_s;
+    fp_prod_mant_t                 mant_prod;
+    fp_ext_mant_t                  c_mant;
+    prod_rexp_t                    exp_base;
+    logic [SFT_AMOUNT_WIDTH - 1:0] sft_amount;
+    logic                          shift_prod;
+    logic                          cmp_mant_en;
+    malu_flags_s                   flags;
+} malu_aalu_dp_s;
 
 typedef struct packed
 {
@@ -126,10 +132,11 @@ typedef struct packed
 
 typedef struct packed
 {
-    fp_ext_mant_t  mant_pre_rnd;
-    prod_rexp_t    exp_rnd;
-    grs_s          grs;
-    renorm_flags_s flags;
+    logic [$bits(fp_ext_mant_t) + RENORM_WINDOW_EXTRA_BITS - 1:0] coarse_window;
+    renorm_fine_off_t                                        fine_offset;
+    logic                                                       coarse_sticky;
+    prod_rexp_t                                                 exp_rnd;
+    renorm_flags_s                                              flags;
 } renorm_rnd_pack_dp_s;
 
 typedef struct packed
@@ -139,21 +146,21 @@ typedef struct packed
 } rnd_pack_out_dp_s;
 
 // Inter-stage handshake
-logic                    malu_postmul_hs_valid;
-logic                    malu_postmul_hs_ready;
-logic                    postmul_aalu_hs_valid;
-logic                    postmul_aalu_hs_ready;
+logic                    preproc_malu_hs_valid;
+logic                    preproc_malu_hs_ready;
+logic                    malu_aalu_hs_valid;
+logic                    malu_aalu_hs_ready;
 logic                    aalu_renorm_hs_valid;
 logic                    aalu_renorm_hs_ready;
 logic                    renorm_rnd_pack_hs_valid;
 logic                    renorm_rnd_pack_hs_ready;
 
 // Inter-stage data path
-malu_postmul_dp_s        malu_out;
-malu_postmul_dp_s        postmul_in;
+preproc_malu_dp_s        preproc_out;
+preproc_malu_dp_s        malu_in;
 
-postmul_aalu_dp_s        postmul_out;
-postmul_aalu_dp_s        aalu_in;
+malu_aalu_dp_s           malu_out;
+malu_aalu_dp_s           aalu_in;
 
 aalu_renorm_dp_s         aalu_out;
 aalu_renorm_dp_s         renorm_in;
@@ -164,101 +171,109 @@ renorm_rnd_pack_dp_s     rnd_pack_in;
 rnd_pack_out_dp_s        rnd_pack_out;
 rnd_pack_out_dp_s        output_dp;
 
-// Stage I: MALU stage
-hsf3_malu #(
+// Stage I: Operand preprocessing
+hsf3_preproc #(
     .EXPONENT_WIDTH(EXPONENT_WIDTH),
     .MANTISSA_WIDTH(MANTISSA_WIDTH),
     .FP_ROUND_MODE (FP_ROUND_MODE )
 )
-malu_inst (
-    .op_a_in        (op_a_in           ),
-    .op_b_in        (op_b_in           ),
-    .op_c_in        (op_c_in           ),
-    .prod_mant_out  (malu_out.mant_prod),
-    .prod_exp_out   (malu_out.rexp_prod),
-    .c_mant_out     (malu_out.c_mant   ),
-    .c_exp_out      (malu_out.c_exp    ),
-    .flags_out      (malu_out.flags    )
+preproc_inst (
+    .op_a_in          (op_a_in                 ),
+    .op_b_in          (op_b_in                 ),
+    .op_c_in          (op_c_in                 ),
+    .mant_a_out       (preproc_out.mant_a      ),
+    .mant_b_out       (preproc_out.mant_b      ),
+    .c_mant_out       (preproc_out.c_mant      ),
+    .prod_exp_out     (preproc_out.prod_exp    ),
+    .c_exp_or_pass_out(preproc_out.c_exp_or_pass),
+    .flags_out        (preproc_out.flags       )
 );
 
-// Pipeline slice between MALU and post-mul
+// Pipeline slice between preproc and MALU
 hs_dpath_skid_buffer #(
     .FULL_THROUGHPUT(BOOL_TRUE               ),
     .CTRL_PIPE      (BOOL_FALSE              ),
     .DATA_PIPE      (BOOL_TRUE               ),
-    .STROBE_UNIT    ($bits(malu_postmul_dp_s)),
-    .DATA_TYPE      (malu_postmul_dp_s       )
+    .STROBE_UNIT    ($bits(preproc_malu_dp_s)),
+    .DATA_TYPE      (preproc_malu_dp_s       )
 )
-malu_postmul_pipe_inst
+preproc_malu_pipe_inst
 (
     .clk       (clk                  ),
     .aresetn   (aresetn              ),
-    .in_data   (malu_out             ),
+    .in_data   (preproc_out          ),
     .in_valid  (op_valid             ),
     .in_last   ('0                   ),
     .in_ready  (op_ready             ),
     .in_strobe ('0                   ),
-    .out_data  (postmul_in           ),
-    .out_valid (malu_postmul_hs_valid),
+    .out_data  (malu_in              ),
+    .out_valid (preproc_malu_hs_valid),
     .out_last  (                     ),
-    .out_ready (malu_postmul_hs_ready),
+    .out_ready (preproc_malu_hs_ready),
     .out_strobe(                     )
 );
 
-// Stage II: Product normalization and operand alignment
-hsf3_postmul #(
+// Stage II: Multiply and compute alignment control
+hsf3_malu #(
     .EXPONENT_WIDTH(EXPONENT_WIDTH),
     .MANTISSA_WIDTH(MANTISSA_WIDTH)
 )
-postmul_inst (
-    .prod_mant_in    (postmul_in.mant_prod    ),
-    .prod_exp_in     (postmul_in.rexp_prod    ),
-    .c_mant_in       (postmul_in.c_mant       ),
-    .c_exp_in        (postmul_in.c_exp        ),
-    .flags_in        (postmul_in.flags        ),
-    .mant_x_out      (postmul_out.mant_x      ),
-    .mant_y_align_out(postmul_out.mant_y_align),
-    .exp_base_out    (postmul_out.exp_base    ),
-    .flags_out       (postmul_out.flags       )
+malu_inst (
+    .mant_a_in       (malu_in.mant_a      ),
+    .mant_b_in       (malu_in.mant_b      ),
+    .c_mant_in       (malu_in.c_mant      ),
+    .prod_exp_in     (malu_in.prod_exp    ),
+    .c_exp_or_pass_in(malu_in.c_exp_or_pass),
+    .flags_in        (malu_in.flags       ),
+    .prod_mant_out   (malu_out.mant_prod  ),
+    .c_mant_out      (malu_out.c_mant     ),
+    .exp_base_out    (malu_out.exp_base   ),
+    .sft_amount_out  (malu_out.sft_amount ),
+    .shift_prod_out  (malu_out.shift_prod ),
+    .cmp_mant_en_out (malu_out.cmp_mant_en),
+    .flags_out       (malu_out.flags      )
 );
 
-// Pipeline slice between postmul and AALU
+// Pipeline slice between MALU and AALU
 hs_dpath_skid_buffer #(
-    .FULL_THROUGHPUT(BOOL_TRUE               ),
-    .CTRL_PIPE      (BOOL_FALSE              ),
-    .DATA_PIPE      (BOOL_TRUE               ),
-    .STROBE_UNIT    ($bits(postmul_aalu_dp_s)),
-    .DATA_TYPE      (postmul_aalu_dp_s       )
+    .FULL_THROUGHPUT(BOOL_TRUE            ),
+    .CTRL_PIPE      (BOOL_FALSE           ),
+    .DATA_PIPE      (BOOL_TRUE            ),
+    .STROBE_UNIT    ($bits(malu_aalu_dp_s)),
+    .DATA_TYPE      (malu_aalu_dp_s       )
 )
-postmul_aalu_pipe_inst
+malu_aalu_pipe_inst
 (
     .clk       (clk                  ),
     .aresetn   (aresetn              ),
-    .in_data   (postmul_out          ),
-    .in_valid  (malu_postmul_hs_valid),
+    .in_data   (malu_out             ),
+    .in_valid  (preproc_malu_hs_valid),
     .in_last   ('0                   ),
-    .in_ready  (malu_postmul_hs_ready),
+    .in_ready  (preproc_malu_hs_ready),
     .in_strobe ('0                   ),
     .out_data  (aalu_in              ),
-    .out_valid (postmul_aalu_hs_valid),
+    .out_valid (malu_aalu_hs_valid   ),
     .out_last  (                     ),
-    .out_ready (postmul_aalu_hs_ready),
+    .out_ready (malu_aalu_hs_ready   ),
     .out_strobe(                     )
 );
 
-// Stage III: AALU stage
+// Stage III: Align operands and add or subtract
 hsf3_aalu #(
     .EXPONENT_WIDTH(EXPONENT_WIDTH),
     .MANTISSA_WIDTH(MANTISSA_WIDTH)
 )
 aalu_inst (
-    .mant_x_in      (aalu_in.mant_x      ),
-    .mant_y_align_in(aalu_in.mant_y_align),
-    .exp_base_in    (aalu_in.exp_base    ),
-    .flags_in       (aalu_in.flags       ),
-    .mant_sum_out   (aalu_out.mant_sum   ),
-    .exp_base_out   (aalu_out.exp_base   ),
-    .flags_out      (aalu_out.flags      )
+    .prod_mant_in   (aalu_in.mant_prod  ),
+    .c_mant_in      (aalu_in.c_mant     ),
+    .exp_base_in    (aalu_in.exp_base   ),
+    .sft_amount_in  (aalu_in.sft_amount ),
+    .shift_prod_in  (aalu_in.shift_prod ),
+    .cmp_mant_en_in (aalu_in.cmp_mant_en),
+    .flags_in       (aalu_in.flags      ),
+    .mant_sum_out   (aalu_out.mant_sum  ),
+    .exp_base_out   (aalu_out.exp_base  ),
+    .flags_out      (aalu_out.flags     )
 );
 
 // Pipeline slice between AALU and renorm
@@ -271,18 +286,18 @@ hs_dpath_skid_buffer #(
 )
 aalu_renorm_pipe_inst
 (
-    .clk       (clk                  ),
-    .aresetn   (aresetn              ),
-    .in_data   (aalu_out             ),
-    .in_valid  (postmul_aalu_hs_valid),
-    .in_last   ('0                   ),
-    .in_ready  (postmul_aalu_hs_ready),
-    .in_strobe ('0                   ),
-    .out_data  (renorm_in            ),
-    .out_valid (aalu_renorm_hs_valid ),
-    .out_last  (                     ),
-    .out_ready (aalu_renorm_hs_ready ),
-    .out_strobe(                     )
+    .clk       (clk                 ),
+    .aresetn   (aresetn             ),
+    .in_data   (aalu_out            ),
+    .in_valid  (malu_aalu_hs_valid  ),
+    .in_last   ('0                  ),
+    .in_ready  (malu_aalu_hs_ready  ),
+    .in_strobe ('0                  ),
+    .out_data  (renorm_in           ),
+    .out_valid (aalu_renorm_hs_valid),
+    .out_last  (                    ),
+    .out_ready (aalu_renorm_hs_ready),
+    .out_strobe(                    )
 );
 
 // Stage IV: Result renormalization
@@ -291,13 +306,14 @@ hsf3_renorm #(
     .MANTISSA_WIDTH(MANTISSA_WIDTH)
 )
 renorm_inst (
-    .mant_sum_in     (renorm_in.mant_sum      ),
-    .exp_base_in     (renorm_in.exp_base      ),
-    .flags_in        (renorm_in.flags         ),
-    .mant_pre_rnd_out(renorm_out.mant_pre_rnd ),
-    .exp_rnd_out     (renorm_out.exp_rnd      ),
-    .grs_out         (renorm_out.grs          ),
-    .flags_out       (renorm_out.flags        )
+    .mant_sum_in      (renorm_in.mant_sum       ),
+    .exp_base_in      (renorm_in.exp_base       ),
+    .flags_in         (renorm_in.flags          ),
+    .coarse_window_out(renorm_out.coarse_window ),
+    .fine_offset_out  (renorm_out.fine_offset   ),
+    .coarse_sticky_out(renorm_out.coarse_sticky ),
+    .exp_rnd_out      (renorm_out.exp_rnd       ),
+    .flags_out        (renorm_out.flags         )
 );
 
 // Pipeline slice between renorm and rnd_pack
@@ -331,12 +347,13 @@ hsf3_rnd_pack #(
     .FP_ROUND_MODE (FP_ROUND_MODE )
 )
 rnd_pack_inst (
-    .mant_pre_rnd_in(rnd_pack_in.mant_pre_rnd    ),
-    .exp_rnd_in     (rnd_pack_in.exp_rnd         ),
-    .grs_in         (rnd_pack_in.grs             ),
-    .flags_in       (rnd_pack_in.flags           ),
-    .result_out     (rnd_pack_out.result         ),
-    .exception_out  (rnd_pack_out.exception_flags)
+    .coarse_window_in(rnd_pack_in.coarse_window    ),
+    .fine_offset_in  (rnd_pack_in.fine_offset      ),
+    .coarse_sticky_in(rnd_pack_in.coarse_sticky    ),
+    .exp_rnd_in      (rnd_pack_in.exp_rnd          ),
+    .flags_in        (rnd_pack_in.flags            ),
+    .result_out      (rnd_pack_out.result          ),
+    .exception_out   (rnd_pack_out.exception_flags )
 );
 
 // Pipeline slice between rnd_pack and output

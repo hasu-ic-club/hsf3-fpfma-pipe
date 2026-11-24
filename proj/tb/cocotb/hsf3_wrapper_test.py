@@ -155,7 +155,7 @@ def _directed_vectors(fmt):
         (one, one, fmt.power(bias - fmt.m - 1)),            # half an ulp at one
         (next_one, one, fmt.power(bias - fmt.m - 1)),
     }
-    aligned_width = 2 * fmt.m + 3
+    aligned_width = 2 * fmt.m + 4
     for gap, direction in product((1, aligned_width - 1, aligned_width, aligned_width + 1), (-1, 1)):
         addend = fmt.power(bias + direction * gap)
         if addend:
@@ -172,7 +172,8 @@ def _random_finite_vectors(fmt, rng, count):
     max_exp = fmt.exp_max - 1
     bias = fmt.exp_max // 2
     edges = sorted({0, min(1, max_exp), bias, max(0, max_exp - 1), max_exp})
-    gaps = (0, 1, 2, 2 * fmt.m + 2, 2 * fmt.m + 3, 2 * fmt.m + 4)
+    aligned_width = 2 * fmt.m + 4
+    gaps = (0, 1, 2, aligned_width - 1, aligned_width, aligned_width + 1)
     for index in range(count):
         exp_a, exp_b, exp_c = (rng.randint(0, max_exp) for _ in range(3))
         sign_a, sign_b, sign_c = (rng.choice((0, fmt.sign_bit)) for _ in range(3))

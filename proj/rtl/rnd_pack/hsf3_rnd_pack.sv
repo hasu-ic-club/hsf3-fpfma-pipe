@@ -22,12 +22,15 @@
 // AUTHOR:    Onodera Tsusaki
 // EMAIL:     apertureelectronic@outlook.com
 //-------------------------------------------------------------------------
-// RELEASE VERSION: 0.1
-// VERSION DESCRIPTION: First Edition
+// RELEASE VERSION: 0.2
+// VERSION DESCRIPTION: Coarse-fine refine shifter version
 //-------------------------------------------------------------------------
 // RELEASES:
 // VERSION    AUTHOR        RELEASE DATE  DESCRIPTION
 // 0.1        O. Tsusaki    2026/11/24    First Edition
+// 0.2        O. Tsusaki    2026/11/24    Add fine renormalization module to this stage.
+//                                        This module receives the coarse shift amounts
+//                                        from renorm stage and calculate the final result.
 //
 //-------------------------------------------------------------------------
 // PURPOSE: Rounding and repack unit (stage) for pipelined FMA
@@ -60,18 +63,20 @@ import hsf3_typedef_pkg::*;
     `LP_MODULE int OP_WIDTH        = 1 + EXPONENT_WIDTH + MANTISSA_WIDTH,
     `LP_MODULE int LZC_WIDTH       = $clog2(MANTISSA_WIDTH + 1 + 1),
     `LP_MODULE int REXP_WIDTH      = hs_math_basic_pkg::max(EXPONENT_WIDTH, LZC_WIDTH) + 1,
-    `LP_MODULE int REXP_SUM_WIDTH  = REXP_WIDTH + 2
+    `LP_MODULE int REXP_SUM_WIDTH  = REXP_WIDTH + 2,
+    `LP_MODULE int WINDOW_WIDTH    = MANTISSA_WIDTH + 1 + RENORM_WINDOW_EXTRA_BITS
 )
 (
     // Input renormalization result
-    input  logic                    [MANTISSA_WIDTH + 1 - 1:0] mant_pre_rnd_in,
-    input  logic             signed [REXP_SUM_WIDTH - 1:0]     exp_rnd_in,
-    input  grs_s                                               grs_in,
+    input  logic                    [WINDOW_WIDTH - 1:0]   coarse_window_in,
+    input  renorm_fine_off_t                               fine_offset_in,
+    input  logic                                           coarse_sticky_in,
+    input  logic             signed [REXP_SUM_WIDTH - 1:0] exp_rnd_in,
 
-    input  renorm_flags_s                                      flags_in,
+    input  renorm_flags_s                                  flags_in,
 
-    output logic                    [OP_WIDTH - 1:0]           result_out,
-    output exception_flags_s                                   exception_out
+    output logic                    [OP_WIDTH - 1:0]       result_out,
+    output exception_flags_s                               exception_out
 );
 
 `HSF3_MANTISSA_TYPEDEF(MANTISSA_WIDTH);
@@ -83,22 +88,38 @@ import hsf3_typedef_pkg::*;
 
 typedef logic signed [REXP_SUM_WIDTH - 1:0] srexp_t;
 
-localparam fp_exp_t INF_EXPONENT        = '1;
-localparam fp_exp_t MAX_FINITE_EXPONENT = INF_EXPONENT - fp_exp_t'(1);
+localparam    fp_exp_t INF_EXPONENT        = '1;
+localparam    fp_exp_t MAX_FINITE_EXPONENT = INF_EXPONENT - fp_exp_t'(1);
+
+// Fine renormalization output
+fp_ext_mant_t          mant_pre_rnd;
+grs_s                  grs;
 
 // GRS rounding output
-fp_ext_mant_t rnd_mant;
-logic         rnd_cout;
+fp_ext_mant_t          rnd_mant;
+logic                  rnd_cout;
 
 // Rounding and renormalization result
-srexp_t       rnd_renorm_exp;
-fp_ext_mant_t rnd_renorm_mant;
-logic         hidden_bit;
-logic         finite_overflow;
-logic         overflow_to_inf;
+srexp_t                rnd_renorm_exp;
+fp_ext_mant_t          rnd_renorm_mant;
+logic                  hidden_bit;
+logic                  finite_overflow;
+logic                  overflow_to_inf;
 
 // Output result
-fp_s          fp_out;
+fp_s                   fp_out;
+
+hsf3_renorm_fine #(
+    .MANTISSA_WIDTH(MANTISSA_WIDTH)
+)
+renorm_fine_inst
+(
+    .coarse_window_in(coarse_window_in),
+    .fine_offset_in  (fine_offset_in  ),
+    .coarse_sticky_in(coarse_sticky_in),
+    .mant_pre_rnd_out(mant_pre_rnd    ),
+    .grs_out         (grs             )
+);
 
 // GRS rounding
 hsf3_grs_round #(
@@ -108,8 +129,8 @@ hsf3_grs_round #(
 grs_round_inst
 (
     .sign_in     (flags_in.result_sign),
-    .ext_mant_in (mant_pre_rnd_in     ),
-    .grs_in      (grs_in              ),
+    .ext_mant_in (mant_pre_rnd        ),
+    .grs_in      (grs                 ),
     .rnd_mant_out(rnd_mant            ),
     .rnd_cout    (rnd_cout            )
 );
@@ -127,7 +148,7 @@ always_comb begin : rnd_cout_sel
 end : rnd_cout_sel
 
 // Hidden bit
-assign hidden_bit = rnd_renorm_mant[MANTISSA_WIDTH];
+assign hidden_bit      = rnd_renorm_mant[MANTISSA_WIDTH];
 
 // Compare the full exponent before truncating it for packing.
 assign finite_overflow = hidden_bit &&
@@ -141,7 +162,7 @@ always_comb begin : out_mux
     if (flags_in.result_pass) begin
         fp_out.sign     = flags_in.result_sign;
         fp_out.exp      = exp_rnd_in[EXPONENT_WIDTH - 1:0];
-        fp_out.mantissa = mant_pre_rnd_in[MANTISSA_WIDTH - 1:0];
+        fp_out.mantissa = mant_pre_rnd[MANTISSA_WIDTH - 1:0];
     end
     else if (flags_in.exact_zero) begin
         fp_out.sign     = (FP_ROUND_MODE == FP_ROUND_MODE_TOWARD_NEGATIVE);
@@ -160,7 +181,7 @@ always_comb begin : out_mux
     end
 end : out_mux
 
-assign result_out = fp_out;
+assign result_out      = fp_out;
 
 // Classify the selected result, including bypasses and overflow results.
 hsf3_bvd #(

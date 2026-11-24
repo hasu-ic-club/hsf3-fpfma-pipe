@@ -5,6 +5,23 @@ It can be configured to support various floating point formats by adjusting the 
 
 This IP is pipelined to achieve high throughput, making it suitable for applications requiring fast floating point arithmetic operations.
 
+## Update in Nov 24, 2026
+
+We moved mantissa multiplication to stage II (MALU).
+Stage I (Preproc) detects special values and normalizes subnormal inputs.
+Stage II compares the raw product exponent and the exponent of `C` to determine the alignment shift in parallel with multiplication.
+
+We merged the alignment shifters into one radix-4 right shifter in stage III (AALU), so stage II can forward the narrow, unaligned mantissa of `C`.
+The shifter aligns the operand with the smaller base exponent and folds discarded bits into its low bit.
+For close exponents, a fixed-slice magnitude comparison runs alongside the shift so the adder can negate the smaller operand in place for subtraction.
+
+We split result renormalization across two stages.
+Stage IV (Renorm) uses the sum's leading-zero count and exponent limit to select a coarse window and save a sticky bit for the bits below it.
+Stage V (Round and Pack) uses a three-bit offset to extract the mantissa and complete the GRS bits before rounding.
+
+The shared alignment shifter and narrower registered `C` path reduce area.
+Computing the exponent difference alongside multiplication and splitting result renormalization across two stages shorten the critical combinational paths and increase fMax.
+
 ## Features
 - Fully pipelined architecture w/ II = 1
 - Parameterized exponent and mantissa widths
@@ -14,7 +31,6 @@ This IP is pipelined to achieve high throughput, making it suitable for applicat
     - Round towards Positive Infinity
     - Round towards Negative Infinity
 - Exception compatible: NaN/Infinity input and output
-
 
 ## Getting Started
 ### FuseSoC and Cocotb Requirements

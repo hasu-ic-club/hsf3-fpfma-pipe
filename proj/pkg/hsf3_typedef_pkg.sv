@@ -64,14 +64,15 @@ package hsf3_typedef_pkg;
         logic c_sign;
         logic c_zero;
         logic result_pass;
-    } malu_flags_s;
+    } preproc_flags_s;
 
     typedef struct packed
     {
+        logic prod_sign;
+        logic c_sign;
         logic add_sub;
-        logic result_sign;
         logic result_pass;
-    } postmul_flags_s;
+    } malu_flags_s;
 
     typedef struct packed
     {
@@ -92,4 +93,11 @@ package hsf3_typedef_pkg;
         logic nan;
         logic inf;
     } exception_flags_s;
+
+    localparam int RENORM_FINE_OFFSET_WIDTH = 3;
+
+    // 2-bit for guard and round, and extra 2^N-bit for maximum offset in group
+    localparam int RENORM_WINDOW_EXTRA_BITS = 2 + (1 << RENORM_FINE_OFFSET_WIDTH) - 1;
+
+    typedef logic [RENORM_FINE_OFFSET_WIDTH - 1:0] renorm_fine_off_t;
 endpackage : hsf3_typedef_pkg
