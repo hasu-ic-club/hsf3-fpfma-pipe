@@ -5,6 +5,11 @@ It can be configured to support various floating point formats by adjusting the 
 
 This IP is pipelined to achieve high throughput, making it suitable for applications requiring fast floating point arithmetic operations.
 
+## Update at PM, Nov 25, 2026
+Use new exact zero determination logic. 
+
+The AALU check only higher bits quality and check all-zero only on product's lower bits for exact zero determination. This avoid the large comparator and reduce the area.
+
 ## Update at AM, Nov 25, 2026
 Use new jam right shifter to optimize the fMax. 
 
