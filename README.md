@@ -5,6 +5,11 @@ It can be configured to support various floating point formats by adjusting the 
 
 This IP is pipelined to achieve high throughput, making it suitable for applications requiring fast floating point arithmetic operations.
 
+## Update at AM, Nov 25, 2026
+Use new jam right shifter to optimize the fMax. 
+
+This new jam shifter generates sticky-bit in parallel alongside with the radix-N right shifter. The sticky bit don't need to wait jam shifter's result to reduce the sticky-bit now. Critical path can be shorten.
+
 ## Update in Nov 24, 2026
 
 We moved mantissa multiplication to stage II (MALU).
