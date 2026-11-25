@@ -80,46 +80,44 @@ import hsf3_typedef_pkg::*;
     output renorm_flags_s                                      flags_out
 );
 
-localparam        int FULL_SUM_LZC_WIDTH = $clog2(SUM_WIDTH + 1);
-localparam        int RENORM_CALC_WIDTH  = REXP_SUM_WIDTH + 1;
-localparam        int HIDDEN_OFFSET      = SUM_WIDTH - 1 - FULL_PROD_WIDTH;
+localparam        int LEAD_IDX_WIDTH    = $clog2(SUM_WIDTH + 1) + 1;
+localparam        int RENORM_CALC_WIDTH = REXP_SUM_WIDTH + 1;
 
-typedef logic        [FULL_SUM_LZC_WIDTH - 1:0] sum_lzc_t;
-typedef logic        [WINDOW_WIDTH - 1:0]       renorm_window_t;
-typedef logic signed [RENORM_CALC_WIDTH - 1:0]  renorm_calc_t;
+typedef logic signed [LEAD_IDX_WIDTH - 1:0] lead_idx_t;
+typedef logic        [WINDOW_WIDTH - 1:0]      renorm_window_t;
+typedef logic signed [RENORM_CALC_WIDTH - 1:0] renorm_calc_t;
 
-// Leading zero of summary mantissa
-sum_lzc_t             mant_sum_lzc;
-
-// Renormalization scaling
+// Exponent limit
 renorm_calc_t         exp_base_calc;
-renorm_calc_t         lzc_calc;
-renorm_calc_t         lzc_limit;
-renorm_calc_t         scale;
-renorm_calc_t         exp_rnd_calc;
-renorm_calc_t         window_hi;
-renorm_window_t       coarse_window;
-renorm_fine_off_t     fine_offset;
-logic                 coarse_sticky;
+renorm_calc_t         limit_hi;                                     // Lower-bound bit index of coarse window
 
-// Leading zero counter (LZC) for result summary mantissa
-hsf3_hblzc #(
-    .DATA_WIDTH     (SUM_WIDTH),
-    .LZC_BLOCK_WIDTH(4        )
-)
-lzc_inst
-(
-    .din(mant_sum_in ),
-    .lzc(mant_sum_lzc)
-);
 
-// Renormalization scaling
+// Pre-round exponent
+lead_idx_t            lead_hi;                                      // Most 1 bit index of mantissa summary
+renorm_calc_t         exp_norm;                                     // Normalized exponent
+renorm_calc_t         exp_rnd_calc;                                 // Exponent limited bigger than smallest exponent
+
+// Coarse window data
+renorm_window_t       coarse_window;                                // Windowed mantissa
+renorm_fine_off_t     fine_offset;                                  // Fine bit offset to select
+logic                 coarse_sticky;                                // Coarse sticky
+
+// Compute the exponent limit independently of the leading group.
 assign exp_base_calc         = renorm_calc_t'(exp_base_in);
-assign lzc_calc              = renorm_calc_t'({1'b0, mant_sum_lzc});
-assign lzc_limit             = exp_base_calc + renorm_calc_t'(HIDDEN_OFFSET - 1);
-assign scale                 = (lzc_limit < lzc_calc) ? lzc_limit : lzc_calc;
-assign exp_rnd_calc          = exp_base_calc - scale + renorm_calc_t'(HIDDEN_OFFSET);
-assign window_hi             = renorm_calc_t'(SUM_WIDTH - 1) - scale;
+
+// Lower-bound bit index of coarse window
+// Note: If we want to put bit h to MSB of mantissa (normalized),
+//       the exponent should be exp_base + h - FULL_PROD_WIDTH.
+//       And the IEEE754 requires exponent >= 1, so that
+//           h >= FULL_PROD_WIDTH + 1 - exp_base
+//       so, this is the lower-bound of h
+assign limit_hi              = renorm_calc_t'(FULL_PROD_WIDTH + 1) - exp_base_calc;
+
+// Normalize the exponent
+assign exp_norm              = exp_base_calc + renorm_calc_t'(lead_hi) - renorm_calc_t'(FULL_PROD_WIDTH);
+
+// Limit the exponent to 1 to process de-normalized number at next stage
+assign exp_rnd_calc          = (exp_norm < renorm_calc_t'(1)) ? renorm_calc_t'(1) : exp_norm;
 
 // Coarse window selection (mutliple-bit group) and
 // do fine renormalization in the next stage.
@@ -130,26 +128,22 @@ hsf3_renorm_coarse_sft #(
 renorm_coarse_sft_inst
 (
     .mant_sum_in      (mant_sum_in  ),
-    .window_hi_in     (window_hi    ),
+    .limit_hi_in      (limit_hi     ),
     .coarse_window_out(coarse_window),
     .fine_offset_out  (fine_offset  ),
-    .coarse_sticky_out(coarse_sticky)
+    .coarse_sticky_out(coarse_sticky),
+    .lead_hi_out      (lead_hi      )
 );
 
 // Output selection
 always_comb begin : out_mux
     if (flags_in.result_pass) begin
         // Place the bypass mantissa and zero G/R at fine offset zero.
-        coarse_window_out = renorm_window_t'({1'b1, mant_sum_in[MANTISSA_WIDTH - 1:0], 2'b00});
+        coarse_window_out = renorm_window_t'(
+            {1'b1, mant_sum_in[MANTISSA_WIDTH - 1:0], 2'b00});
         fine_offset_out   = '0;
         coarse_sticky_out = 1'b0;
         exp_rnd_out       = exp_base_in;
-    end
-    else if (flags_in.exact_zero) begin
-        coarse_window_out = '0;
-        fine_offset_out   = '0;
-        coarse_sticky_out = 1'b0;
-        exp_rnd_out       = '0;
     end
     else begin
         coarse_window_out = coarse_window;

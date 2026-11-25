@@ -7,8 +7,10 @@ This IP is pipelined to achieve high throughput, making it suitable for applicat
 
 ## Update at PM, Nov 25, 2026
 Use new exact zero determination logic. 
-
 The AALU check only higher bits quality and check all-zero only on product's lower bits for exact zero determination. This avoid the large comparator and reduce the area.
+
+Stage IV (Renorm) now finds the leading nonzero group and computes the exponent limit in parallel. 
+It selects the coarse window directly by group index and resolves the fine offset separately. This removes the full leading-zero count and scaling carry chain from the coarse window selection path, improving fMax.
 
 ## Update at AM, Nov 25, 2026
 Use new jam right shifter to optimize the fMax. 
