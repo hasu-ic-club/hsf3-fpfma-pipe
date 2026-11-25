@@ -28,6 +28,12 @@
 // RELEASES:
 // VERSION    AUTHOR        RELEASE DATE  DESCRIPTION
 // 0.1        O. Tsusaki    2026/11/23    First Edition
+// 0.2        O. Tsusaki    2026/11/25    Use new exact zero determination
+//                                        logic. Check only higher bits for
+//                                        equality determination, and lower 
+//                                        bits only need to check all-zero.
+//                                        This avoid the large comparator and
+//                                        reduce the area.
 //-------------------------------------------------------------------------
 // PURPOSE: Adder arithmetic logic unit (stage) for pipelined FMA
 //
@@ -84,18 +90,25 @@ import hsf3_typedef_pkg::*;
 typedef logic [SUM_WIDTH - 1:0] mant_sum_t;
 typedef logic [EXT_MANT_WIDTH + 1 - 1:0] prod_mant_t;
 
+// Product alignment
 mant_aligned_t prod_mant;
 mant_aligned_t c_mant;
 mant_aligned_t mant_unshifted;
 mant_aligned_t mant_to_shift;
 mant_aligned_t mant_shifted;
+
+// Alignment result to adder
 prod_mant_t    prod_mant_cmp;
 logic          c_large;
 logic          unshifted_is_larger;
 logic          invert_unshifted;
 logic          invert_shifted;
+
+// Adder result
 mant_sum_t     mant_sum;
-logic          mant_eq;
+
+// Exact zero determine
+logic          prod_tail_non_zero;  // Indicate the tail (mantissa-bit) of product (unshifted) is zero
 
 // Right-shift the operand with the smaller base exponent.
 assign prod_mant             = {prod_mant_in, 2'b00};
@@ -143,9 +156,14 @@ cadder_inst
 );
 
 // Exact zero determine
-assign mant_eq               = mant_unshifted == mant_shifted;
+// Opt in 0.2
+assign prod_tail_non_zero    = (|prod_mant_in[MANTISSA_WIDTH - 1:0] ||
+        (shift_prod_in && prod_mant_in[MANTISSA_WIDTH]));
 assign flags_out.exact_zero  = !flags_in.result_pass &&
-    flags_in.add_sub && mant_eq;
+    flags_in.add_sub &&
+    cmp_mant_en_in &&
+    (prod_mant_cmp == {1'b0, c_mant_in}) &&
+    !prod_tail_non_zero;
 
 // Forward the encoded bypass mantissa and exponent.
 always_comb begin : bypass_fwd
