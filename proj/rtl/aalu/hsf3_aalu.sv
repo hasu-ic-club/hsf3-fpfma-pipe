@@ -104,8 +104,10 @@ assign mant_unshifted        = shift_prod_in ? c_mant : prod_mant;
 assign mant_to_shift         = shift_prod_in ? prod_mant : c_mant;
 
 hsf3_jam_rshift #(
-    .DATA_WIDTH      (ALIGNED_WIDTH   ),
-    .SFT_AMOUNT_WIDTH(SFT_AMOUNT_WIDTH)
+    .DATA_WIDTH       (ALIGNED_WIDTH   ),
+    .SFT_AMOUNT_WIDTH (SFT_AMOUNT_WIDTH),
+    .RADIX_EXP2       (2               ),
+    .JAM_GRP_SIZE_EXP2(2               )
 )
 align_rshift_inst (
     .data_in (mant_to_shift),
@@ -148,8 +150,8 @@ assign flags_out.exact_zero  = !flags_in.result_pass &&
 // Forward the encoded bypass mantissa and exponent.
 always_comb begin : bypass_fwd
     mant_sum_out = flags_in.result_pass ?
-        mant_sum_t'(c_mant_in[MANTISSA_WIDTH - 1:0]) : 
-        mant_sum;
+    mant_sum_t'(c_mant_in[MANTISSA_WIDTH - 1:0]) :
+    mant_sum;
     exp_base_out = exp_base_in;
 end : bypass_fwd
 
